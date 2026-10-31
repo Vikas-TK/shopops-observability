@@ -17,7 +17,7 @@ foreach ($svc in $services) {
         continue
     }
 
-    $image = "shopops/${svc}:${Tag}"
+    $image = "shopops-${svc}:${Tag}"
     Write-Host "==> building $image"
     docker build -t $image -f $dockerfile "services/$svc"
     if ($LASTEXITCODE -ne 0) { throw "docker build failed for $svc" }

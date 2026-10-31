@@ -15,7 +15,7 @@ for svc in "${SERVICES[@]}"; do
     continue
   fi
 
-  image="shopops/${svc}:${TAG}"
+  image="shopops-${svc}:${TAG}"
   echo "==> building ${image}"
   docker build -t "${image}" -f "${dockerfile}" "services/${svc}"
 
