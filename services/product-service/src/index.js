@@ -129,8 +129,35 @@ app.use((req, res) => {
   res.status(404).json({ error: 'not_found' });
 });
 
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   logger.info({ port: PORT }, 'product-service listening');
 });
+
+// Graceful shutdown: stop accepting new connections, let in-flight requests
+// finish, then exit. Needed because Kubernetes sends SIGTERM on pod
+// termination and expects the process to drain before the grace period
+// (terminationGracePeriodSeconds) elapses.
+function shutdown(signal) {
+  logger.info({ signal }, 'received shutdown signal, draining connections');
+  isReady = false;
+
+  server.close((err) => {
+    if (err) {
+      logger.error({ err }, 'error during server close');
+      process.exit(1);
+    }
+    logger.info('shutdown complete');
+    process.exit(0);
+  });
+
+  // Safety net in case connections never drain.
+  setTimeout(() => {
+    logger.warn('forced shutdown after timeout');
+    process.exit(1);
+  }, 10000).unref();
+}
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
 
 module.exports = app;

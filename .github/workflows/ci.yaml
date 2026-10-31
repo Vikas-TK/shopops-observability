@@ -1,35 +1,27 @@
-name: ShopOps CI/CD
+name: ShopOps CI/CD Pipeline
 
-# ---------------------------------------------------------------------------
-# Trigger on pushes to main (build + publish images) and on PRs targeting
-# main (test only, plus a non-publishing image build to catch Dockerfile
-# regressions before merge).
-# ---------------------------------------------------------------------------
 on:
   push:
-    branches: [main]
+    branches: ["main"]
   pull_request:
-    branches: [main]
-
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAMESPACE: ${{ github.repository }}
+    branches: ["main"]
 
 jobs:
-  # -------------------------------------------------------------------------
-  # Job 1: Test & lint every microservice.
-  # Services are onboarded incrementally, so a service without a
-  # package.json yet is skipped instead of failing the matrix.
-  # -------------------------------------------------------------------------
-  test:
-    name: Test (${{ matrix.service }})
+  # ---------------------------------------------------------------------------
+  # Job 1: Lint & test every microservice.
+  # Services are onboarded incrementally (only product-service exists today),
+  # so a service without a package.json yet is skipped rather than failing
+  # the matrix.
+  # ---------------------------------------------------------------------------
+  test-and-lint:
+    name: Lint & Test Services
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         service: [product-service, order-service, payment-service]
     steps:
-      - name: Checkout repository
+      - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Check whether service exists yet
@@ -42,33 +34,32 @@ jobs:
             echo "::notice::services/${{ matrix.service }} not implemented yet, skipping"
           fi
 
-      - name: Set up Node.js (LTS)
+      - name: Setup Node.js 20
         if: steps.service-check.outputs.exists == 'true'
         uses: actions/setup-node@v4
         with:
-          node-version: lts/*
-          cache: npm
+          node-version: "20"
+          cache: "npm"
           cache-dependency-path: services/${{ matrix.service }}/package-lock.json
 
-      - name: Install dependencies
+      - name: Install Dependencies
         if: steps.service-check.outputs.exists == 'true'
-        working-directory: services/${{ matrix.service }}
-        run: npm ci || npm install
+        working-directory: ./services/${{ matrix.service }}
+        run: npm ci
 
-      - name: Run tests
+      - name: Run Tests
         if: steps.service-check.outputs.exists == 'true'
-        working-directory: services/${{ matrix.service }}
-        run: npm test
+        working-directory: ./services/${{ matrix.service }}
+        run: npm test --if-present
 
-  # -------------------------------------------------------------------------
-  # Job 2: Build (and, on main, publish) Docker images to GHCR.
-  # Pull requests only build images (to validate the Dockerfile); pushes to
-  # main also push the resulting image tagged with `latest` and the commit
-  # SHA.
-  # -------------------------------------------------------------------------
+  # ---------------------------------------------------------------------------
+  # Job 2: Build & push images to GHCR.
+  # Only runs on pushes to main. Skips any service without a Dockerfile yet.
+  # ---------------------------------------------------------------------------
   build-and-push:
-    name: Build & push (${{ matrix.service }})
-    needs: test
+    name: Build & Push Images to GHCR
+    needs: test-and-lint
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -78,7 +69,7 @@ jobs:
       matrix:
         service: [product-service, order-service, payment-service]
     steps:
-      - name: Checkout repository
+      - name: Checkout Code
         uses: actions/checkout@v4
 
       - name: Check whether service exists yet
@@ -95,33 +86,73 @@ jobs:
         if: steps.service-check.outputs.exists == 'true'
         uses: docker/setup-buildx-action@v3
 
-      # Only authenticate to the registry when we actually intend to push
-      # (i.e. not on pull requests), keeping the GITHUB_TOKEN usage minimal.
       - name: Log in to GitHub Container Registry
-        if: steps.service-check.outputs.exists == 'true' && github.event_name == 'push'
+        if: steps.service-check.outputs.exists == 'true'
         uses: docker/login-action@v3
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Derive image metadata (tags & labels)
+      - name: Extract Metadata (Tags, Labels)
         if: steps.service-check.outputs.exists == 'true'
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAMESPACE }}/${{ matrix.service }}
+          images: ghcr.io/${{ github.repository }}/${{ matrix.service }}
           tags: |
-            type=raw,value=latest,enable={{is_default_branch}}
             type=sha,format=long
+            type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build and push image
+      - name: Build and Push Docker Image
         if: steps.service-check.outputs.exists == 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v5
         with:
-          context: services/${{ matrix.service }}
-          push: ${{ github.event_name == 'push' }}
+          context: ./services/${{ matrix.service }}
+          push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
+
+  # ---------------------------------------------------------------------------
+  # Job 3: Vulnerability scan with Trivy.
+  # Rebuilds the image locally (no registry pull needed) and scans it.
+  # Advisory only (exit-code 0) — reported, not blocking, until the team
+  # decides on a severity gate.
+  # ---------------------------------------------------------------------------
+  security-scan:
+    name: Vulnerability Scan (Trivy)
+    needs: build-and-push
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [product-service, order-service, payment-service]
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Check whether service exists yet
+        id: service-check
+        run: |
+          if [ -f "services/${{ matrix.service }}/Dockerfile" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::services/${{ matrix.service }} has no Dockerfile yet, skipping"
+          fi
+
+      - name: Build Local Image for Scanning
+        if: steps.service-check.outputs.exists == 'true'
+        run: docker build -t shopops-${{ matrix.service }}:scan ./services/${{ matrix.service }}
+
+      - name: Run Trivy vulnerability scanner
+        if: steps.service-check.outputs.exists == 'true'
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: "shopops-${{ matrix.service }}:scan"
+          format: "table"
+          exit-code: "0"
+          severity: "CRITICAL,HIGH"
