@@ -1,0 +1,36 @@
+# Mock notification sink for local SLO-alert verification. Echoes every
+# incoming webhook request (method, path, body) to stdout, so `kubectl logs`
+# shows the exact alert payload Alertmanager sent — standing in for a real
+# PagerDuty/Slack/Opsgenie receiver.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webhook-sink
+  namespace: monitoring
+  labels:
+    app: webhook-sink
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: webhook-sink
+  template:
+    metadata:
+      labels:
+        app: webhook-sink
+    spec:
+      containers:
+        - name: webhook-sink
+          image: mendhak/http-https-echo:31
+          env:
+            - name: HTTP_PORT
+              value: "8080"
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 100m
+              memory: 128Mi

@@ -1,0 +1,46 @@
+# Routes alerts by severity (set as a label on each rule in
+# prometheus/rules.yaml) to separate webhook paths on webhook-sink, so the
+# three alert types are visibly distinguishable in that sink's logs during
+# local verification. In production, critical/warning would point at
+# PagerDuty/Slack/Opsgenie receivers instead of the mock sink.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: monitoring
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 5m
+
+    route:
+      receiver: default-receiver
+      group_by: ["alertname", "job"]
+      group_wait: 10s
+      group_interval: 30s
+      repeat_interval: 1h
+      routes:
+        - matchers:
+            - severity="critical"
+          receiver: critical-receiver
+          repeat_interval: 15m
+        - matchers:
+            - severity="warning"
+          receiver: warning-receiver
+          repeat_interval: 1h
+
+    receivers:
+      - name: default-receiver
+        webhook_configs:
+          - url: "http://webhook-sink.monitoring.svc.cluster.local:8080/default"
+            send_resolved: true
+
+      - name: critical-receiver
+        webhook_configs:
+          - url: "http://webhook-sink.monitoring.svc.cluster.local:8080/critical"
+            send_resolved: true
+
+      - name: warning-receiver
+        webhook_configs:
+          - url: "http://webhook-sink.monitoring.svc.cluster.local:8080/warning"
+            send_resolved: true
