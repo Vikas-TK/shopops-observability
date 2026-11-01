@@ -1,0 +1,37 @@
+# Single-binary Loki with local filesystem storage (boltdb-shipper + v11
+# schema) — no object store needed for a local kind cluster. Storage is
+# backed by an emptyDir in the Deployment, so logs don't survive a pod
+# restart; that's an acceptable tradeoff for local dev and keeps this
+# module dependency-free (no MinIO/S3).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loki-config
+  namespace: monitoring
+data:
+  local-config.yaml: |
+    auth_enabled: false
+
+    server:
+      http_listen_port: 3100
+
+    common:
+      path_prefix: /loki
+      storage:
+        filesystem:
+          chunks_directory: /loki/chunks
+          rules_directory: /loki/rules
+      replication_factor: 1
+      ring:
+        kvstore:
+          store: inmemory
+
+    schema_config:
+      configs:
+        - from: 2020-10-24
+          store: boltdb-shipper
+          object_store: filesystem
+          schema: v11
+          index:
+            prefix: index_
+            period: 24h
