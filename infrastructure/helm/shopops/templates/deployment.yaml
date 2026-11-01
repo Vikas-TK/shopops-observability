@@ -27,6 +27,11 @@ spec:
           imagePullPolicy: {{ $svc.image.pullPolicy }}
           ports:
             - containerPort: {{ $svc.service.port }}
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: {{ $svc.name }}
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: "http://tempo.monitoring.svc.cluster.local:4317"
           resources:
             requests:
               cpu: {{ $.Values.resources.requests.cpu }}

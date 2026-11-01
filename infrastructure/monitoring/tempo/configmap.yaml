@@ -1,0 +1,42 @@
+# Single-binary Tempo with local filesystem storage (WAL + blocks on an
+# emptyDir in the Deployment) — no object store needed for a local kind
+# cluster, same tradeoff as Loki: traces don't survive a pod restart,
+# which is acceptable for local dev and keeps this module dependency-free
+# (no MinIO/S3).
+#
+# The distributor exposes both OTLP receivers so the OTel Node.js SDK can
+# use either transport: gRPC on 4317 (preferred, used by product-service)
+# and HTTP on 4318 (kept available for exporters/tools that can't do gRPC).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tempo-config
+  namespace: monitoring
+data:
+  tempo.yaml: |
+    server:
+      http_listen_port: 3100
+
+    distributor:
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+              endpoint: 0.0.0.0:4317
+            http:
+              endpoint: 0.0.0.0:4318
+
+    ingester:
+      max_block_duration: 5m
+
+    compactor:
+      compaction:
+        block_retention: 24h
+
+    storage:
+      trace:
+        backend: local
+        local:
+          path: /tmp/tempo/blocks
+        wal:
+          path: /tmp/tempo/wal
