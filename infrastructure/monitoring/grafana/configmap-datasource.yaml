@@ -1,6 +1,16 @@
-# Provisions the Prometheus and Loki datasources on boot so dashboards
-# and Explore can query metrics/logs immediately, with no manual
-# "Add data source" step in the UI.
+# Provisions the Prometheus, Loki, and Tempo datasources on boot so
+# dashboards and Explore can query metrics/logs/traces immediately, with
+# no manual "Add data source" step in the UI.
+#
+# Explicit `uid`s let Loki and Tempo cross-link:
+#   - Loki's derivedFields regex-matches a trace_id in the log line body
+#     (OTel's HTTP instrumentation injects trace_id/span_id into every
+#     Pino log line once tracing.js is loaded) and turns it into an
+#     internal link to the Tempo datasource — click a trace_id in Explore
+#     logs, jump straight to that trace's waterfall.
+#   - Tempo's tracesToLogsV2 does the reverse: from a trace span, jump to
+#     the matching Loki logs, filtered by the `app` label mapped from the
+#     span's `service.name` resource attribute.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -12,13 +22,36 @@ data:
     datasources:
       - name: Prometheus
         type: prometheus
+        uid: prometheus
         access: proxy
         url: http://prometheus.monitoring.svc.cluster.local:9090
         isDefault: true
         editable: false
       - name: Loki
         type: loki
+        uid: loki
         access: proxy
         url: http://loki.monitoring.svc.cluster.local:3100
         isDefault: false
         editable: false
+        jsonData:
+          derivedFields:
+            - datasourceUid: tempo
+              matcherRegex: "\"trace_id\":\"(\\w+)\""
+              name: TraceID
+              url: "${__value.raw}"
+      - name: Tempo
+        type: tempo
+        uid: tempo
+        access: proxy
+        url: http://tempo.monitoring.svc.cluster.local:3100
+        isDefault: false
+        editable: false
+        jsonData:
+          tracesToLogsV2:
+            datasourceUid: loki
+            tags:
+              - key: service.name
+                value: app
+            filterByTraceID: false
+            filterBySpanID: false
