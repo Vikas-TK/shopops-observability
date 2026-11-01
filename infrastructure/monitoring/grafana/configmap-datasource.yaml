@@ -1,5 +1,6 @@
-# Provisions the Prometheus datasource on boot so dashboards can query
-# metrics immediately, with no manual "Add data source" step in the UI.
+# Provisions the Prometheus and Loki datasources on boot so dashboards
+# and Explore can query metrics/logs immediately, with no manual
+# "Add data source" step in the UI.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -14,4 +15,10 @@ data:
         access: proxy
         url: http://prometheus.monitoring.svc.cluster.local:9090
         isDefault: true
+        editable: false
+      - name: Loki
+        type: loki
+        access: proxy
+        url: http://loki.monitoring.svc.cluster.local:3100
+        isDefault: false
         editable: false
