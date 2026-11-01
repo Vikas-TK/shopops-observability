@@ -16,6 +16,10 @@ spec:
     metadata:
       labels:
         app: {{ $svc.name }}
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "{{ $svc.service.port }}"
+        prometheus.io/path: "/metrics"
     spec:
       containers:
         - name: {{ $svc.name }}
