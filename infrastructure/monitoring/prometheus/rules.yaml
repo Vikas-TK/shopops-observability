@@ -1,0 +1,57 @@
+# SLO-driven alert rules for the shopops microservices. Metric names/labels
+# come from each service's prom-client registry (http_requests_total,
+# http_request_duration_seconds, labels: service, method, route, status) and
+# the `job` label Prometheus attaches via relabel_configs in configmap.yaml,
+# which equals the pod's `app` label (product-service/order-service/payment-service).
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-rules
+  namespace: monitoring
+data:
+  shopops-alerts.yml: |
+    groups:
+      - name: shopops-slo-alerts
+        rules:
+          - alert: ShopOpsHighErrorRate
+            expr: >
+              (
+                sum by (job) (rate(http_requests_total{status=~"5.."}[5m]))
+                /
+                sum by (job) (rate(http_requests_total[5m]))
+              ) > 0.01
+            for: 2m
+            labels:
+              severity: critical
+            annotations:
+              summary: "High 5xx error rate on {{ $labels.job }}"
+              description: >-
+                {{ $labels.job }} has returned a 5xx error rate of
+                {{ $value | humanizePercentage }} over the last 5 minutes,
+                above the 1% SLO threshold.
+
+          - alert: ShopOpsHighLatency
+            expr: >
+              histogram_quantile(
+                0.95,
+                sum by (le, job) (rate(http_request_duration_seconds_bucket[5m]))
+              ) > 0.5
+            for: 2m
+            labels:
+              severity: warning
+            annotations:
+              summary: "High p95 latency on {{ $labels.job }}"
+              description: >-
+                {{ $labels.job }} p95 request duration is
+                {{ $value | humanizeDuration }} over the last 5 minutes,
+                above the 500ms SLO threshold.
+
+          - alert: ShopOpsServiceDown
+            expr: up{job=~"product-service|order-service|payment-service"} == 0
+            labels:
+              severity: critical
+            annotations:
+              summary: "{{ $labels.job }} is unreachable"
+              description: >-
+                Prometheus has failed to scrape {{ $labels.job }}
+                (pod {{ $labels.pod }}) on its most recent attempt.
