@@ -1,8 +1,6 @@
 # Default values for the shopops chart.
 # Each entry under `services` becomes one Deployment + ClusterIP Service via
-# templates/deployment.yaml. `enabled: false` skips a service entirely, which
-# is how order-service/payment-service are declared here before they have a
-# real image to deploy — flip to `true` once their image exists.
+# templates/deployment.yaml. `enabled: false` skips a service entirely.
 services:
   productService:
     enabled: true
@@ -16,7 +14,7 @@ services:
       port: 3000
 
   orderService:
-    enabled: false
+    enabled: true
     name: order-service
     replicaCount: 1
     image:
@@ -27,7 +25,7 @@ services:
       port: 3000
 
   paymentService:
-    enabled: false
+    enabled: true
     name: payment-service
     replicaCount: 1
     image:

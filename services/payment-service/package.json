@@ -1,0 +1,21 @@
+{
+  "name": "payment-service",
+  "version": "1.0.0",
+  "description": "ShopOps Payment Service - simulated payment processing",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node --require ./src/tracing.js src/index.js",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@opentelemetry/auto-instrumentations-node": "^0.49.1",
+    "@opentelemetry/exporter-trace-otlp-grpc": "^0.53.0",
+    "@opentelemetry/resources": "^1.26.0",
+    "@opentelemetry/sdk-node": "^0.53.0",
+    "@opentelemetry/semantic-conventions": "^1.27.0",
+    "express": "^4.19.2",
+    "pino": "^9.3.2",
+    "pino-http": "^10.2.0",
+    "prom-client": "^15.1.3"
+  }
+}
