@@ -1,0 +1,76 @@
+# RED-metrics (Rate, Errors, Duration) dashboard plus a service-up panel,
+# one line per microservice (job label). This is what Module 3.2's chaos
+# experiments are watched against: pod-termination should dip the up panel
+# and request rate to zero and recover; CPU stress / latency injection
+# should show up as a p95 duration spike without necessarily tripping "up".
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboard-red
+  namespace: monitoring
+data:
+  shopops-red.json: |
+    {
+      "title": "ShopOps RED Metrics",
+      "uid": "shopops-red",
+      "timezone": "browser",
+      "schemaVersion": 39,
+      "refresh": "5s",
+      "time": { "from": "now-15m", "to": "now" },
+      "panels": [
+        {
+          "id": 1,
+          "title": "Service Up",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 0 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "expr": "up{job=~\"product-service|order-service|payment-service\"}",
+              "legendFormat": "{{job}}"
+            }
+          ]
+        },
+        {
+          "id": 2,
+          "title": "Request Rate (req/s)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "expr": "sum by (job) (rate(http_requests_total[1m]))",
+              "legendFormat": "{{job}}"
+            }
+          ]
+        },
+        {
+          "id": 3,
+          "title": "5xx Error Rate (%)",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "expr": "100 * sum by (job) (rate(http_requests_total{status=~\"5..\"}[1m])) / sum by (job) (rate(http_requests_total[1m]))",
+              "legendFormat": "{{job}}"
+            }
+          ],
+          "fieldConfig": { "defaults": { "unit": "percent" }, "overrides": [] }
+        },
+        {
+          "id": 4,
+          "title": "p95 Request Duration",
+          "type": "timeseries",
+          "gridPos": { "h": 8, "w": 24, "x": 0, "y": 16 },
+          "datasource": { "type": "prometheus", "uid": "prometheus" },
+          "targets": [
+            {
+              "expr": "histogram_quantile(0.95, sum by (le, job) (rate(http_request_duration_seconds_bucket[1m])))",
+              "legendFormat": "{{job}}"
+            }
+          ],
+          "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+        }
+      ]
+    }
