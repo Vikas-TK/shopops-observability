@@ -15,15 +15,18 @@ COPY src ./src
 # Runner stage: minimal production image.
 # - Fresh `npm ci --only=production` keeps devDependencies out of the final
 #   image instead of copying node_modules across stages.
-# - Runs as the non-privileged `node` user baked into the official image
-#   (uid/gid 1000) rather than root.
+# - Runs as uid/gid 10001, a dedicated unprivileged user matching the
+#   Helm chart's pod securityContext (runAsUser: 10001), rather than root
+#   or the image's built-in `node` user (uid 1000).
 # - dumb-init is PID 1 so SIGTERM/SIGINT are forwarded to the Node process
 #   (and any zombie children reaped) instead of being swallowed by a shell,
 #   giving the app a real chance to drain connections before exiting.
 # =============================================================================
 FROM node:20-alpine AS runner
 
-RUN apk add --no-cache dumb-init
+RUN apk add --no-cache dumb-init \
+    && addgroup -g 10001 appgroup \
+    && adduser -D -u 10001 -G appgroup appuser
 
 ENV NODE_ENV=production
 WORKDIR /app
@@ -31,9 +34,9 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci --only=production && npm cache clean --force
 
-COPY --chown=node:node --from=builder /app/src ./src
+COPY --chown=appuser:appgroup --from=builder /app/src ./src
 
-USER node
+USER 10001:10001
 
 EXPOSE 3000
 

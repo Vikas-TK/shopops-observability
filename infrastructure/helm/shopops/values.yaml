@@ -44,3 +44,20 @@ resources:
   limits:
     cpu: 200m
     memory: 256Mi
+
+# Enterprise pod/container security baseline (Module 3.3 hardening). Applied
+# uniformly to every service via templates/deployment.yaml — overridable per
+# environment, but production should never relax these.
+securityContext:
+  pod:
+    runAsNonRoot: true
+    runAsUser: 10001
+    runAsGroup: 10001
+    fsGroup: 10001
+    seccompProfile:
+      type: RuntimeDefault
+  container:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: ["ALL"]

@@ -21,6 +21,13 @@ spec:
         prometheus.io/port: "{{ $svc.service.port }}"
         prometheus.io/path: "/metrics"
     spec:
+      securityContext:
+        runAsNonRoot: {{ $.Values.securityContext.pod.runAsNonRoot }}
+        runAsUser: {{ $.Values.securityContext.pod.runAsUser }}
+        runAsGroup: {{ $.Values.securityContext.pod.runAsGroup }}
+        fsGroup: {{ $.Values.securityContext.pod.fsGroup }}
+        seccompProfile:
+          type: {{ $.Values.securityContext.pod.seccompProfile.type }}
       containers:
         - name: {{ $svc.name }}
           image: "{{ $svc.image.repository }}:{{ $svc.image.tag }}"
@@ -32,6 +39,14 @@ spec:
               value: {{ $svc.name }}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: "http://tempo.monitoring.svc.cluster.local:4317"
+          securityContext:
+            allowPrivilegeEscalation: {{ $.Values.securityContext.container.allowPrivilegeEscalation }}
+            readOnlyRootFilesystem: {{ $.Values.securityContext.container.readOnlyRootFilesystem }}
+            capabilities:
+              drop:
+                {{- range $.Values.securityContext.container.capabilities.drop }}
+                - {{ . }}
+                {{- end }}
           resources:
             requests:
               cpu: {{ $.Values.resources.requests.cpu }}
@@ -51,6 +66,12 @@ spec:
               port: {{ $svc.service.port }}
             initialDelaySeconds: 2
             periodSeconds: 5
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

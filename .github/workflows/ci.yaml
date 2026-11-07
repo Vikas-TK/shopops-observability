@@ -53,11 +53,15 @@ jobs:
         run: npm test --if-present
 
   # ---------------------------------------------------------------------------
-  # Job 2: Build & push images to GHCR.
+  # Job 2: Build, scan, then push images to GHCR.
   # Only runs on pushes to main. Skips any service without a Dockerfile yet.
+  # The image is built locally first (push: false, load: true) so Trivy scans
+  # it *before* anything reaches the registry. A CRITICAL finding fails the
+  # job and the push step never runs; HIGH findings are reported but don't
+  # block.
   # ---------------------------------------------------------------------------
-  build-and-push:
-    name: Build & Push Images to GHCR
+  build-scan-push:
+    name: Build, Scan & Push Images to GHCR
     needs: test-and-lint
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
@@ -104,51 +108,21 @@ jobs:
             type=sha,format=long
             type=raw,value=latest,enable={{is_default_branch}}
 
-      - name: Build and Push Docker Image
+      - name: Build Image Locally (no push yet)
         if: steps.service-check.outputs.exists == 'true'
         uses: docker/build-push-action@v5
         with:
           context: ./services/${{ matrix.service }}
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          push: false
+          load: true
+          tags: |
+            ${{ steps.meta.outputs.tags }}
+            shopops-${{ matrix.service }}:scan
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
-  # ---------------------------------------------------------------------------
-  # Job 3: Vulnerability scan with Trivy.
-  # Rebuilds the image locally (no registry pull needed) and scans it.
-  # Advisory only (exit-code 0) — reported, not blocking, until the team
-  # decides on a severity gate.
-  # ---------------------------------------------------------------------------
-  security-scan:
-    name: Vulnerability Scan (Trivy)
-    needs: build-and-push
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        service: [product-service, order-service, payment-service]
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Check whether service exists yet
-        id: service-check
-        run: |
-          if [ -f "services/${{ matrix.service }}/Dockerfile" ]; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "::notice::services/${{ matrix.service }} has no Dockerfile yet, skipping"
-          fi
-
-      - name: Build Local Image for Scanning
-        if: steps.service-check.outputs.exists == 'true'
-        run: docker build -t shopops-${{ matrix.service }}:scan ./services/${{ matrix.service }}
-
-      - name: Run Trivy vulnerability scanner
+      - name: Vulnerability Report (HIGH + CRITICAL, informational)
         if: steps.service-check.outputs.exists == 'true'
         uses: aquasecurity/trivy-action@master
         with:
@@ -156,3 +130,19 @@ jobs:
           format: "table"
           exit-code: "0"
           severity: "CRITICAL,HIGH"
+
+      - name: Vulnerability Gate (CRITICAL fails the build)
+        if: steps.service-check.outputs.exists == 'true'
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: "shopops-${{ matrix.service }}:scan"
+          format: "table"
+          exit-code: "1"
+          severity: "CRITICAL"
+
+      - name: Push Docker Image (only after a clean scan)
+        if: steps.service-check.outputs.exists == 'true'
+        run: |
+          echo "${{ steps.meta.outputs.tags }}" | while IFS= read -r tag; do
+            [ -n "$tag" ] && docker push "$tag"
+          done
