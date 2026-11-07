@@ -32,7 +32,12 @@ ENV NODE_ENV=production
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
-RUN npm ci --only=production && npm cache clean --force
+# npm itself (and its bundled tar) is only needed to install deps, not to run
+# the app (ENTRYPOINT invokes node directly) — stripping it out removes any
+# CVEs in npm's own dependency tree from the final image's attack surface.
+RUN npm ci --only=production \
+    && npm cache clean --force \
+    && rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
 
 COPY --chown=appuser:appgroup --from=builder /app/src ./src
 
